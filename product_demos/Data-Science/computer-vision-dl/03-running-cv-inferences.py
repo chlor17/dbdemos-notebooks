@@ -32,7 +32,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install databricks-sdk==0.39.0 mlflow==2.20.2
+# MAGIC %pip install databricks-sdk==0.39.0 mlflow==3.1.0
 # MAGIC dbutils.library.restartPython()
 
 # COMMAND ----------
@@ -152,6 +152,7 @@ display(df.limit(3).select('filename', 'content').withColumn("prediction", detec
 # DBTITLE 1,Model Wrapper for base64 image decoding
 from io import BytesIO
 import base64
+from typing import Dict, List
 
 # Model wrapper
 class RealtimeCVModelWrapper(mlflow.pyfunc.PythonModel):
@@ -161,10 +162,10 @@ class RealtimeCVModelWrapper(mlflow.pyfunc.PythonModel):
         self.pipeline.model.eval()
 
     #images will contain a series of images encoded in b64
-    def predict(self, context, images):
+    def predict(self, context, model_input: pd.DataFrame) -> Dict[str, any]:
         with torch.set_grad_enabled(False):
           #Convert the base64 to PIL images
-          images = images['data'].apply(lambda b: Image.open(BytesIO(base64.b64decode(b)))).to_list()
+          images = model_input['data'].apply(lambda b: Image.open(BytesIO(base64.b64decode(b)))).to_list()
           # Make the predictions
           predictions = self.pipeline(images)
           # Return the prediction with the highest score
@@ -208,7 +209,7 @@ with mlflow.start_run(run_name="hugging_face_rt") as run:
   signature = infer_signature(df_input, predictions)
   #log the model to MLFlow
   reqs = mlflow.pyfunc.log_model(
-    artifact_path="model", 
+    name="model", 
     python_model=rt_model, 
     pip_requirements=requirements_path, 
     input_example=df_input, 
@@ -326,3 +327,7 @@ for i in range(3):
 # MAGIC Working with huggingface might not be enough for you. For deeper, custom integration, you can also leverage libraries like pytorch.
 # MAGIC
 # MAGIC Open the [05-torch-lightning-training-and-inference]($./05-torch-lightning-training-and-inference) notebook to discover how to train and deploy a Pytorch model with [PyTorch Lightning](https://www.pytorchlightning.ai/index.html).
+
+# COMMAND ----------
+
+
