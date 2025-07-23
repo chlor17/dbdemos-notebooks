@@ -20,13 +20,13 @@
 # COMMAND ----------
 
 # DBTITLE 1,Setup - Install deltatorch  & lightning
-# MAGIC %pip install pytorch-lightning==2.5.0 git+https://github.com/delta-incubator/deltatorch.git databricks-sdk==0.39.0 datasets==2.20.0 transformers==4.49.0 tf-keras==2.17.0 accelerate==1.4.0 mlflow==2.20.2 torchvision==0.20.1 deepspeed==0.14.4 evaluate==0.4.3
+# MAGIC %pip install pytorch-lightning==2.5.0 git+https://github.com/delta-incubator/deltatorch.git databricks-sdk==0.39.0 datasets==2.20.0 transformers==4.49.0 tf-keras==2.17.0 accelerate==1.4.0 mlflow==3.1.0 torchvision==0.20.1 deepspeed==0.14.4 evaluate==0.4.3
 # MAGIC dbutils.library.restartPython()
 
 # COMMAND ----------
 
 # DBTITLE 1,Demo setup
-# MAGIC %run ./_resources/00-init $reset_all_data=false
+# MAGIC %run ./_resources/00-init $reset_all_data=false 
 
 # COMMAND ----------
 
@@ -62,28 +62,27 @@ w = Window().orderBy(rand())
 train_path = f"/Volumes/{catalog}/{db}/{volume_name}/pcb_torch_delta/train"
 test_path = f"/Volumes/{catalog}/{db}/{volume_name}/pcb_torch_delta/test"
 
-train.withColumn("id", row_number().over(w)).write.mode("overwrite").save(train_path)
-test.withColumn("id", row_number().over(w)).write.mode("overwrite").save(test_path)
+train.withColumn("id", row_number().over(w)).write.mode("overwrite").option('delta.enableDeletionVectors', 'false').save(train_path)
+test.withColumn("id", row_number().over(w)).write.mode("overwrite").option('delta.enableDeletionVectors', 'false').save(test_path)
 
 # COMMAND ----------
 
-# DBTITLE 1,Data Loaders using deltatorch
-# Deltatorch makes it easy to load Delta Dataframe to torch and efficiently distribute it among multiple nodes.
-# This requires deltatorch to be installed. 
-# Note: For small dataset, a LightningDataModule example directly using hugging face transformers is also available in the _resources/00-init notebook.
-from PIL import Image
+# MAGIC %pip install pytorch_lightning==2.5.2 
+
+# COMMAND ----------
+
 import pytorch_lightning as pl
-from deltatorch import create_pytorch_dataloader
-from deltatorch import FieldSpec
+from streaming import StreamingDataset, StreamingDataLoader
+from PIL import Image
 import torchvision.transforms as tf
+import io
 
 class DeltaDataModule(pl.LightningDataModule):
-    #Creating a Data loading module with Delta Torch loader 
+    # Creating a Data loading module with Mosaic Streaming loader 
     def __init__(self, train_path, test_path):
         self.train_path = train_path 
         self.test_path = test_path 
         super().__init__()
-
         self.transform = tf.Compose([
                 tf.Lambda(lambda x: x.convert("RGB")),
                 tf.Resize(256),
@@ -91,27 +90,94 @@ class DeltaDataModule(pl.LightningDataModule):
                 tf.ToTensor(),
                 tf.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
             ])
-        
+    
     def dataloader(self, path: str, batch_size=32):
-        return create_pytorch_dataloader(
-            path,
-            id_field="id",
-            fields=[
-                FieldSpec("content", load_image_using_pil=True, transform=self.transform),
-                FieldSpec("label"),
-            ],
+        """
+        Create a Mosaic Streaming dataloader
+        
+        Args:
+            path: Path to the streaming dataset (local or remote)
+            batch_size: Batch size for the dataloader
+        
+        Returns:
+            StreamingDataLoader instance
+        """
+        
+        # Create the streaming dataset
+        dataset = StreamingDataset(
+            remote=path,  # Can be local path or remote (S3, GCS, etc.)
+            local=None,   # Local cache directory (optional)
             shuffle=True,
             batch_size=batch_size,
+            transform=self.transform
         )
-
+        
+        # Create the streaming dataloader
+        return StreamingDataLoader(
+            dataset=dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=0,  # Adjust as needed
+            pin_memory=True,
+            drop_last=False
+        )
+    
     def train_dataloader(self):
         return self.dataloader(self.train_path, batch_size=64)
-
+    
     def val_dataloader(self):
         return self.dataloader(self.test_path, batch_size=64)
-
+    
     def test_dataloader(self):
         return self.dataloader(self.test_path, batch_size=64)
+
+# COMMAND ----------
+
+# DBTITLE 1,Data Loaders using deltatorch
+# # Deltatorch makes it easy to load Delta Dataframe to torch and efficiently distribute it among multiple nodes.
+# # This requires deltatorch to be installed. 
+# # Note: For small dataset, a LightningDataModule example directly using hugging face transformers is also available in the _resources/00-init notebook.
+# from PIL import Image
+# import pytorch_lightning as pl
+# from deltatorch import create_pytorch_dataloader
+# from deltatorch import FieldSpec
+# import torchvision.transforms as tf
+
+# class DeltaDataModule(pl.LightningDataModule):
+#     #Creating a Data loading module with Delta Torch loader 
+#     def __init__(self, train_path, test_path):
+#         self.train_path = train_path 
+#         self.test_path = test_path 
+#         super().__init__()
+
+#         self.transform = tf.Compose([
+#                 tf.Lambda(lambda x: x.convert("RGB")),
+#                 tf.Resize(256),
+#                 tf.CenterCrop(224),
+#                 tf.ToTensor(),
+#                 tf.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+#             ])
+        
+#     def dataloader(self, path: str, batch_size=32):
+#         return create_pytorch_dataloader(
+#             path,
+#             id_field="id",
+#             fields=[
+#                 FieldSpec("content", load_image_using_pil=True, transform=self.transform),
+#                 FieldSpec("label"),
+#             ],
+#             shuffle=True,
+#             batch_size=batch_size,
+#         )
+
+#     def train_dataloader(self):
+#         return self.dataloader(self.train_path, batch_size=64)
+
+#     def val_dataloader(self):
+#         return self.dataloader(self.test_path, batch_size=64)
+
+#     def test_dataloader(self):
+#         return self.dataloader(self.test_path, batch_size=64)
 
 # COMMAND ----------
 

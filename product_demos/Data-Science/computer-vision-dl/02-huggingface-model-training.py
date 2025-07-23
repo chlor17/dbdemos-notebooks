@@ -262,7 +262,7 @@ with mlflow.start_run(run_name="hugging_face") as run:
   
    #    log the model, set tags, and log metrics
   mlflow.transformers.log_model(
-    artifact_path="model", 
+    name="model", 
     transformers_model=classifier, 
     pip_requirements=reqs,
     signature=signature)

@@ -29,6 +29,15 @@
 
 # COMMAND ----------
 
+from mlflow.store.artifact.models_artifact_repo import ModelsArtifactRepository
+import mlflow
+# Use the Unity Catalog model registry
+mlflow.set_registry_uri("databricks-uc")
+# download model requirement from remote registry
+requirements_path = ModelsArtifactRepository(f"models:/{catalog}.{db}.xxxx").download_artifacts(artifact_path="requirements.txt")
+
+# COMMAND ----------
+
 # DBTITLE 1,Load the pip requirements from the model registry
 from mlflow.store.artifact.models_artifact_repo import ModelsArtifactRepository
 import os
@@ -48,6 +57,7 @@ if not os.path.exists(requirements_path):
 
 # DBTITLE 1,Install the requirements
 # MAGIC %pip install -r $requirements_path
+# MAGIC dbutils.library.restartPython()
 
 # COMMAND ----------
 
