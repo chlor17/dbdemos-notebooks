@@ -41,7 +41,7 @@
 # MAGIC
 # MAGIC <img style="float: right; margin-left: 15px" height="500px"  src="https://raw.githubusercontent.com/databricks-demos/dbdemos-resources/main/images/partners/dbt/dbt-task.png"/>
 # MAGIC
-# MAGIC Databricks Workflow, the lakehouse orchestration tool, has a native integration with dbt. <br />
+# MAGIC Databricks Jobs & Pipelines, the lakehouse orchestration tool, has a native integration with dbt. <br />
 # MAGIC You can easily add a new task launching a DBT pipeline within your ETL workflow.
 # MAGIC
 # MAGIC To do so, simply select the "dbt" type in the task configuration and select which dbt CLI and command you want to run. 
@@ -99,16 +99,11 @@
 # MAGIC %md-sandbox
 # MAGIC ## Setting up dbt Cloud + Databricks
 # MAGIC
-# MAGIC
-# MAGIC <iframe style="float:right; margin-left: 20px" width="560" height="315" src="https://www.youtube.com/embed/12wOO88ZEJo" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
-# MAGIC
 # MAGIC dbt cloud helps team developping dbt pipelines faster. Once your pipeline is ready in dbt cloud, you can easily launch it in your Databricks Lakehouse with one of the best TCO.
 # MAGIC
 # MAGIC The integration between dbt Cloud and Databricks is available out of the boxin the Partner Connect menu (bottom left of your screen).
 # MAGIC
 # MAGIC You'll find all the required information to setup the connection between dbt Cloud and Databricks warehouse endpoints
-# MAGIC
-# MAGIC In addition, you can watch this video going through the setup steps
 
 # COMMAND ----------
 
