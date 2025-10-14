@@ -6,18 +6,26 @@
 # MAGIC
 # MAGIC Models in Unity Catalog can be loaded for use in batch inference pipelines. Generated predictions would be used to advise on customer retention strategies or be used for analytics. The model in use is the __@Champion__ model, and we will load it for use in our pipeline.
 # MAGIC
-# MAGIC <img src="https://github.com/databricks-demos/dbdemos-resources/blob/main/images/product/mlops/advanced/banners/mlflow-uc-end-to-end-advanced-5.png?raw=true" width="1200">
+# MAGIC <img src="https://github.com/databricks-demos/dbdemos-resources/blob/main/images/product/mlops/advanced/banners/mlflow-uc-end-to-end-advanced-5-v2.png?raw=true" width="1200">
 # MAGIC
 # MAGIC <!-- Collect usage data (view). Remove it to disable collection or disable tracker during installation. View README for more details.  -->
 # MAGIC <img width="1px" src="https://ppxrzfxige.execute-api.us-west-2.amazonaws.com/v1/analytics?category=lakehouse&notebook=05_batch_inference&demo_name=mlops-end2end&event=VIEW">
 
 # COMMAND ----------
 
-# DBTITLE 1,Install MLflow version for model lineage in UC [for MLR < 15.2]
-# MAGIC %pip install --quiet mlflow==2.22.0 databricks-feature-engineering==0.12.1
+# MAGIC %md
+# MAGIC Last environment tested:
+# MAGIC ```
+# MAGIC databricks-feature-engineering==0.13.0a8
+# MAGIC mlflow==3.3.2
+# MAGIC ```
+
+# COMMAND ----------
+
+# MAGIC %pip install --quiet databricks-feature-engineering>=0.13.0a8 mlflow --upgrade
 # MAGIC
 # MAGIC
-# MAGIC dbutils.library.restartPython()
+# MAGIC %restart_python
 
 # COMMAND ----------
 
@@ -26,7 +34,7 @@
 # COMMAND ----------
 
 # MAGIC %md-sandbox
-# MAGIC ##Deploying the model for batch inferences
+# MAGIC ## Consume/Use the model for batch inferences
 # MAGIC
 # MAGIC <!--img style="float: right; margin-left: 20px" width="600" src="https://github.com/QuentinAmbard/databricks-demo/raw/main/retail/resources/images/churn_batch_inference.gif" /-->
 # MAGIC
@@ -39,12 +47,7 @@
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Run inferences
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### Batch inference on the Champion model
+# MAGIC ## Batch inference on the Champion model
 # MAGIC
 # MAGIC We are ready to run inference on the Champion model. We will leverage the feature engineering client's `score_batch` method and generate predictions for our customer records.
 # MAGIC
@@ -52,40 +55,67 @@
 
 # COMMAND ----------
 
-from mlflow.store.artifact.models_artifact_repo import ModelsArtifactRepository
-
-
-requirements_path = ModelsArtifactRepository(f"models:/{catalog}.{db}.advanced_mlops_churn@Challenger").download_artifacts(artifact_path="requirements.txt") # download model from remote registry
+# MAGIC %md
+# MAGIC ### Reproduce inference env in notebook _(OPTIONNAL)_
+# MAGIC ONLY if you plan on executing the batch inference in the default Serverless environment defined here (`env_manager="local"`), otherwise no need as inference can run on a virtual environment (`env_manager="virtual_env" or "uv"`) pulled from the model requirements artifacts or if the same MLR version was used for training this model version.
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC ```python
+# MAGIC from mlflow.store.artifact.models_artifact_repo import ModelsArtifactRepository
+# MAGIC
+# MAGIC
+# MAGIC requirements_path = ModelsArtifactRepository(f"models:/{catalog}.{db}.advanced_mlops_churn@Champion").download_artifacts(artifact_path="requirements.txt") # download model from remote registry
+# MAGIC ```
+# MAGIC -----------------------------------------------------------------
+# MAGIC ```bash
 # MAGIC %pip install --quiet -r $requirements_path
-# MAGIC dbutils.library.restartPython()
-
-# COMMAND ----------
-
+# MAGIC
+# MAGIC
+# MAGIC %restart_python
+# MAGIC ```
+# MAGIC ----------------------------------------------------------------
+# MAGIC ```bash
 # MAGIC %run ../_resources/00-setup $adv_mlops=true $setup_adv_inference_data=true
+# MAGIC ```
 
 # COMMAND ----------
 
-# DBTITLE 1,In a python notebook
-from databricks.feature_engineering import FeatureEngineeringClient
-import pyspark.sql.functions as F
+env_manager = "virtualenv" # For fe.score_batch() function - set to "local" if NOT running on Serverless AND/OR pip installing all model artifacts
 
+# COMMAND ----------
 
-# Load customer features to be scored
-inference_df = spark.read.table("advanced_churn_cust_ids")
+# MAGIC %md
+# MAGIC ### Use built-in `fe.score_batch()` on model uri
+# MAGIC Pull new labels/customer_ids to score and run inference locally using spark()
 
-fe = FeatureEngineeringClient()
+# COMMAND ----------
+
+# DBTITLE 1,Set model alias to use for batch inference
+model_alias = "Champion" # "Challenger"
 
 # Fully qualified model name
 model_name = f"{catalog}.{db}.advanced_mlops_churn"
 
 # Model URI
-model_uri = f"models:/{model_name}@Champion"
+model_uri = f"models:/{model_name}@{model_alias}"
+# model_uri = f"models:/{model_name}/{model_version}"
+
+# COMMAND ----------
+
+from databricks.feature_engineering import FeatureEngineeringClient
+
+
+fe = FeatureEngineeringClient()
+
+# Load customer features to be scored
+inference_df = spark.read.table("advanced_churn_cust_ids")
+# Reduce the amount of inferences for the demo to run faster
+inference_df = inference_df.limit(100)
 
 # Batch score
-preds_df = fe.score_batch(df=inference_df, model_uri=model_uri, result_type="string")
+preds_df = fe.score_batch(df=inference_df, model_uri=model_uri, result_type="string", env_manager=env_manager)
 display(preds_df)
 
 # COMMAND ----------
@@ -111,29 +141,28 @@ display(preds_df)
 # COMMAND ----------
 
 from mlflow import MlflowClient
-from datetime import datetime
 
 
 client = MlflowClient()
 
 model = client.get_registered_model(name=model_name)
-model_version = int(client.get_model_version_by_alias(name=model_name, alias="Champion").version)
+model_version = client.get_model_version_by_alias(name=model_name, alias=model_alias).version
 
 # COMMAND ----------
 
-import pyspark.sql.functions as F
 from datetime import datetime, timedelta
+from pyspark.sql import functions as F
 
 
-offline_inference_df = preds_df.withColumn("model_name", F.lit(model_name)) \
+offline_inference_df = preds_df.drop("split") \
                               .withColumn("model_version", F.lit(model_version)) \
-                              .withColumn("model_alias", F.lit("Champion")) \
-                              .withColumn("inference_timestamp", F.lit(datetime.now()- timedelta(days=2)))
+                              .withColumn("inference_timestamp", F.lit(datetime.now())) # - timedelta(days=1)))
 
-offline_inference_df.write.mode("overwrite") \
+offline_inference_df.write.mode("append") \
+                    .option("overwriteSchema", True) \
                     .saveAsTable("advanced_churn_offline_inference")
 
-display(offline_inference_df)
+# display(offline_inference_df)
 
 # COMMAND ----------
 

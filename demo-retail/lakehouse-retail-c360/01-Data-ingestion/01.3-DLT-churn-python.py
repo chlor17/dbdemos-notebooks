@@ -1,5 +1,5 @@
 # Databricks notebook source
-# MAGIC %pip install mlflow==2.22.0
+# MAGIC %pip install mlflow==3.1.0
 # MAGIC #If you issues, make sure this matches your automl dependency version. For prod usage, use env_manager='conda'
 # MAGIC %pip install azure-core azure-storage-file-datalake #for the display() in Azure only
 # MAGIC dbutils.library.restartPython()
@@ -332,7 +332,7 @@ def churn_prediction():
 # MAGIC
 # MAGIC Now that these tables are available in our Lakehouse, let's review how we can share them with the Data Scientists and Data Analysts teams.
 # MAGIC
-# MAGIC Jump to the [Governance with Unity Catalog notebook]($../00-churn-introduction-lakehouse) or [Go back to the introduction]($../00-churn-introduction-lakehouse)
+# MAGIC Jump to the [Governance with Unity Catalog notebook]($../02-Data-governance/02.1-UC-data-governance-security-churn) or [Go back to the introduction]($../00-churn-introduction-lakehouse)
 
 # COMMAND ----------
 

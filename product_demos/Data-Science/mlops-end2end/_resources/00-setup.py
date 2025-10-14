@@ -17,6 +17,7 @@ reformat_current_user = current_user.split("@")[0].lower().replace(".", "_")
 
 catalog = "main__build"
 dbName = db = "dbdemos_mlops"
+online_store_name = "shared_online_store" # "fe_shared_demo"
 
 # COMMAND ----------
 
@@ -39,7 +40,7 @@ logging.getLogger("mlflow").setLevel(logging.ERROR)
 
 # COMMAND ----------
 
-DBDemos.setup_schema(catalog, db, reset_all_data)
+DBDemos.setup_schema(catalog, db, False)
 
 # COMMAND ----------
 
@@ -117,7 +118,6 @@ def delete_feature_store_table(catalog, db, feature_table_name):
 # COMMAND ----------
 
 # This setup is used in the quickstart demo only
-
 quickstart_training_table_name = "mlops_churn_training"
 quickstart_unlabelled_table_name = "mlops_churn_inference"
 
@@ -145,31 +145,31 @@ if setup_adv_inference_data:
     # if not spark.catalog.tableExists(f"advanced_churn_cust_ids"):
     print("Creating table with customer records for inference...")
     # Drop the label column for inference
-    # This seems to be writing to the wrong table. Comment out first to test writing to advanced_churn_cust_ids.
-    #spark.read.table("advanced_churn_label_table").drop("churn","split").write.mode("overwrite").option("overwriteSchema", "true").saveAsTable("churn_label_table")
-    spark.read.table("advanced_churn_label_table").drop("churn","split").write.mode("overwrite").option("overwriteSchema", "true").saveAsTable("advanced_churn_cust_ids")
+    spark.read.table("advanced_churn_label_table").drop("churn").write.mode("overwrite").option("overwriteSchema", "true").saveAsTable("advanced_churn_cust_ids")
   else:
     print("Label table `advanced_churn_label_table` doesn't exist, please run the notebook '01_feature_engineering'")
 
 # COMMAND ----------
 
 # DBTITLE 1,Generate inference synthetic data
-gen_synthetic_data = False
 def generate_synthetic(inference_table):
   import dbldatagen as dg
   import pyspark.sql.types
   import pyspark.sql.functions as F
   from datetime import datetime, timedelta
-  # Column definitions are stubs only - modify to generate correct data  
-  #
+
+  model_version = client.get_model_version_by_alias(name=model_name, alias="Champion").version
+  n_days_to_back_fill = 30 # Change this
+
+  # Column definitions are based on original dataset schema
   generation_spec = (
     dg.DataGenerator(sparkSession=spark, 
                     name='synthetic_data', 
-                    rows=5000,
+                    rows=7000*n_days_to_back_fill,
                     random=True,
                     )
     .withColumn('customer_id', 'string', template=r'dddd-AAAA')
-    .withColumn('transaction_ts', 'timestamp', begin=(datetime.now() + timedelta(days=-30)), end=(datetime.now() + timedelta(days=-1)), interval="1 hour")
+    .withColumn('transaction_ts', 'timestamp', begin=(datetime.now() + timedelta(days=-n_days_to_back_fill)), end=datetime.now(), interval="1 hour")
     .withColumn('gender', 'string', values=['Female', 'Male'], random=True, weights=[0.5, 0.5])
     .withColumn('senior_citizen', 'string', values=['No', 'Yes'], random=True, weights=[0.85, 0.15])
     .withColumn('partner', 'string', values=['No', 'Yes'], random=True, weights=[0.5, 0.5])
@@ -191,8 +191,9 @@ def generate_synthetic(inference_table):
     .withColumn('total_charges', 'double', minValue=0.0, maxValue=8684.0, step=20)
     .withColumn('num_optional_services', 'double', minValue=0.0, maxValue=6.0, step=1)
     .withColumn('avg_price_increase', 'float', minValue=-19.0, maxValue=130.0, step=20)
-    .withColumn('churn', 'string', values=['No', 'Yes'], random=True, weights=[0.8, 0.2])
-    .withColumn('predictions', 'string', values=['No', 'Yes'], random=True, weights=[0.2, 0.8])
+    .withColumn('churn', 'string', values=['No', 'Yes'], random=True, weights=[0.2, 0.8], percentNulls=0.8)
+    .withColumn('inference_timestamp', 'timestamp', begin=(datetime.now() + timedelta(days=-n_days_to_back_fill)), end=(datetime.now()), interval="1 hour")
+    .withColumn('prediction', 'string', values=['No', 'Yes'], random=True, weights=[0.6, 0.4])
     )
 
   # Generate Synthetic Data
@@ -200,9 +201,9 @@ def generate_synthetic(inference_table):
 
   ## Append relevant/monitoring columns
   preds_df = df_synthetic_data \
-    .withColumn('model_name', F.lit(f"{model_name}")) \
-    .withColumn('model_version', F.lit(2)) \
-    .withColumn('inference_timestamp', F.lit(datetime.now()- timedelta(days=1))) 
+    .withColumn('model_name', F.lit(model_name)) \
+    .withColumn('model_version', F.lit(model_version)) \
+    # .withColumn('inference_timestamp', F.lit(datetime.now())) # + timedelta(days=1))) 
 
   preds_df.write.mode("append").option("mergeSchema", "true").saveAsTable(f"{catalog}.{db}.{inference_table_name}")
 
@@ -211,3 +212,7 @@ if is_advanced_mlops_demo:
   inference_table_name = "advanced_churn_inference_table"
   if generate_synthetic_data:
     generate_synthetic(inference_table=inference_table_name)
+
+# COMMAND ----------
+
+
